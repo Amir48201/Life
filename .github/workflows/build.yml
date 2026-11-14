@@ -29,15 +29,12 @@ jobs:
           draw = ImageDraw.Draw(img)
           pad = 16
           box = [pad, pad, size - pad, size - pad]
-          # دایره اصلی (نیمه مشکی و نیمه طلایی)
           draw.pieslice(box, 90, 270, fill='#1A1C24', outline='#FFC107', width=10)
           draw.pieslice(box, 270, 90, fill='#FFC107', outline='#FFC107', width=10)
           r = (size - 2 * pad) // 2
           cx = size // 2
-          # نیم‌دایره‌های میانی یین و یانگ
           draw.ellipse([cx - r//2, pad, cx + r//2, pad + r], fill='#FFC107')
           draw.ellipse([cx - r//2, pad + r, cx + r//2, size - pad], fill='#1A1C24')
-          # نقاط مرکزی متضاد
           dot = r // 5
           draw.ellipse([cx - dot, pad + r//2 - dot, cx + dot, pad + r//2 + dot], fill='#1A1C24')
           draw.ellipse([cx - dot, pad + r + r//2 - dot, cx + dot, pad + r + r//2 + dot], fill='#FFC107')
@@ -45,7 +42,7 @@ jobs:
           "
 
       - name: Build Life.exe with Icon
-        run: pyinstaller --noconsole --onefile --icon="yin_yang.ico" --name "Life" life_app.py
+        run: pyinstaller --noconsole --onefile --icon="yin_yang.ico" --add-data "yin_yang.ico;." --name "Life" life_app.py
 
       - name: Upload Life.exe artifact
         uses: actions/upload-artifact@v4
