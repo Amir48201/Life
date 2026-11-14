@@ -1,5 +1,6 @@
 import os
 import json
+import calendar
 import tkinter as tk
 from tkinter import ttk, messagebox, colorchooser
 from datetime import date, timedelta
@@ -15,6 +16,13 @@ TEXT_MUTED = "#8E95A8"
 ACCENT_GOLD = "#FFC107"
 ACCENT_GREEN = "#4CAF50"
 FUTURE_BOX = "#252834"
+
+
+def get_anniversary(birth_date: date, years_to_add: int) -> date:
+    """محاسبه دقیق تاریخ سالگرد تولد با پشتیبانی از ۲۹ فوریه در سال‌های کبیسه"""
+    target_year = birth_date.year + years_to_add
+    max_day = calendar.monthrange(target_year, birth_date.month)[1]
+    return date(target_year, birth_date.month, min(birth_date.day, max_day))
 
 
 class LifeApp:
@@ -78,9 +86,41 @@ class LifeApp:
             json.dump(self.data, f, ensure_ascii=False, indent=2)
 
     def get_current_week_index(self) -> int:
+        """محاسبه اندیس هفته جاری بر اساس سالگرد تولد واقعی"""
         b_date = date.fromisoformat(self.data["birth_date"])
-        days_lived = (date.today() - b_date).days
-        return max(0, days_lived // 7)
+        today = date.today()
+        if today <= b_date:
+            return 0
+
+        # محاسبه سن کامل بر اساس تقویم
+        age = today.year - b_date.year
+        if (today.month, today.day) < (b_date.month, b_date.day):
+            age -= 1
+        age = max(0, age)
+
+        last_bday = get_anniversary(b_date, age)
+        days_since_bday = (today - last_bday).days
+        # هفته جاری در سال جاری (حداکثر 51 یعنی هفته 52ام)
+        week_in_year = min(51, days_since_bday // 7)
+        return (age * 52) + week_in_year
+
+    def get_week_date_range(self, week_idx: int):
+        """بازگرداندن تاریخ شروع و پایان هر خانه (هفته 52ام تا یک روز قبل از تولد بعدی امتداد دارد)"""
+        b_date = date.fromisoformat(self.data["birth_date"])
+        age_yr = week_idx // 52
+        wk_of_yr = week_idx % 52
+
+        year_start = get_anniversary(b_date, age_yr)
+        next_year_start = get_anniversary(b_date, age_yr + 1)
+
+        w_start = year_start + timedelta(days=wk_of_yr * 7)
+        if wk_of_yr == 51:
+            # هفته آخر سال دقیقاً یک روز قبل از سالگرد تولد بعدی تمام می‌شود (8 یا 9 روز)
+            w_end = next_year_start - timedelta(days=1)
+        else:
+            w_end = w_start + timedelta(days=6)
+
+        return w_start, w_end
 
     def show_setup_dialog(self, first_time=False):
         dialog = tk.Toplevel(self.root)
@@ -116,7 +156,7 @@ class LifeApp:
             form, font=("Segoe UI", 11), bg=BG_CARD, fg=TEXT_PRIMARY, insertbackground=TEXT_PRIMARY, relief="flat"
         )
         birth_entry.pack(fill="x", pady=(4, 14), ipady=5)
-        birth_entry.insert(0, self.data.get("birth_date") or "1998-05-15")
+        birth_entry.insert(0, self.data.get("birth_date") or "2001-12-15")
 
         tk.Label(
             form, text="Target Age (Years):", font=("Segoe UI", 10), bg=BG_PANEL, fg=TEXT_PRIMARY
@@ -219,8 +259,10 @@ class LifeApp:
         total = self.data["target_age"] * 52
         rem = max(0, total - curr)
         pct = min(100.0, (curr / total) * 100) if total > 0 else 0
+        age_yr = curr // 52
+        wk_yr = (curr % 52) + 1
         self.stats_label.config(
-            text=f"Week {curr + 1:,} of {total:,}   •   {pct:.1f}% Lived   •   {rem:,} Weeks Remaining"
+            text=f"Age {age_yr}, Week {wk_yr}/52   •   {pct:.1f}% Lived   •   {rem:,} Weeks Remaining"
         )
 
     def build_overview_tab(self):
@@ -236,7 +278,7 @@ class LifeApp:
         right_panel.pack_propagate(False)
 
         self.ov_week_title = tk.Label(
-            right_panel, text="Week #1", font=("Segoe UI", 14, "bold"), bg=BG_PANEL, fg=ACCENT_GOLD
+            right_panel, text="Week #1", font=("Segoe UI", 13, "bold"), bg=BG_PANEL, fg=ACCENT_GOLD
         )
         self.ov_week_title.pack(anchor="w", padx=18, pady=(18, 2))
 
@@ -431,20 +473,14 @@ class LifeApp:
         self.load_week_into_panels(week_idx)
         self.notebook.select(self.tab_week)
 
-    def get_week_date_range(self, week_idx: int):
-        b_date = date.fromisoformat(self.data["birth_date"])
-        w_start = b_date + timedelta(days=week_idx * 7)
-        w_end = w_start + timedelta(days=6)
-        return w_start, w_end
-
     def load_week_into_panels(self, week_idx: int):
         w_start, w_end = self.get_week_date_range(week_idx)
         age_yr = week_idx // 52
         wk_of_yr = (week_idx % 52) + 1
         curr = self.get_current_week_index()
-        tag = " (CURRENT WEEK)" if week_idx == curr else ""
+        tag = " (CURRENT)" if week_idx == curr else ""
 
-        self.ov_week_title.config(text=f"Week #{week_idx + 1} — Age {age_yr}, W{wk_of_yr}{tag}")
+        self.ov_week_title.config(text=f"Age {age_yr} — Week {wk_of_yr}/52{tag}")
         self.ov_week_dates.config(text=f"{w_start.strftime('%b %d, %Y')}  →  {w_end.strftime('%b %d, %Y')}")
 
         w_data = self.data["weeks"].get(str(week_idx), {})
@@ -515,10 +551,6 @@ class LifeApp:
         self.days_container = tk.Frame(self.tab_week, bg=BG_MAIN)
         self.days_container.pack(fill="both", expand=True)
 
-        for col in range(7):
-            self.days_container.columnconfigure(col, weight=1, uniform="day_col")
-        self.days_container.rowconfigure(0, weight=1)
-
     def change_week(self, delta: int):
         max_w = (self.data["target_age"] * 52) - 1
         new_idx = max(0, min(max_w, self.selected_week_idx + delta))
@@ -529,16 +561,25 @@ class LifeApp:
             w.destroy()
 
         w_start, w_end = self.get_week_date_range(week_idx)
+        num_days = (w_end - w_start).days + 1
+        age_yr = week_idx // 52
+        wk_of_yr = (week_idx % 52) + 1
+
         self.wk_tab_header.config(
-            text=f"Week #{week_idx + 1}  ({w_start.strftime('%Y-%m-%d')} to {w_end.strftime('%Y-%m-%d')})"
+            text=f"Age {age_yr}, Week {wk_of_yr}/52  ({w_start.strftime('%Y-%m-%d')} to {w_end.strftime('%Y-%m-%d')})"
         )
+
+        # تنظیم ستون‌ها بر اساس تعداد روزهای هفته (7 روز در هفته‌های عادی، 8 یا 9 روز در هفته 52ام)
+        for col in range(10):
+            self.days_container.columnconfigure(col, weight=1 if col < num_days else 0, uniform="day_col" if col < num_days else "")
+        self.days_container.rowconfigure(0, weight=1)
 
         idx_str = str(week_idx)
         w_data = self.data["weeks"].get(idx_str, {})
         days_data = w_data.get("days", {})
         today = date.today()
 
-        for d_offset in range(7):
+        for d_offset in range(num_days):
             day_date = w_start + timedelta(days=d_offset)
             d_key = str(d_offset)
             d_info = days_data.get(d_key, {"done": False, "color": BG_CARD, "note": ""})
@@ -553,13 +594,13 @@ class LifeApp:
                 highlightbackground=border_col,
                 highlightthickness=2 if is_today else 1,
             )
-            card.grid(row=0, column=d_offset, sticky="nsew", padx=5, pady=4)
+            card.grid(row=0, column=d_offset, sticky="nsew", padx=4, pady=4)
 
             day_name = day_date.strftime("%A")
             tk.Label(
                 card,
                 text=day_name,
-                font=("Segoe UI", 11, "bold"),
+                font=("Segoe UI", 10, "bold"),
                 bg=card_bg,
                 fg=ACCENT_GOLD if is_today else TEXT_PRIMARY,
             ).pack(pady=(12, 2))
@@ -575,7 +616,7 @@ class LifeApp:
             done_var = tk.BooleanVar(value=d_info.get("done", False))
             chk = tk.Checkbutton(
                 card,
-                text="Completed / Filled",
+                text="Completed",
                 variable=done_var,
                 font=("Segoe UI", 9, "bold"),
                 bg=card_bg,
@@ -595,7 +636,7 @@ class LifeApp:
                 return _pick
 
             btn_row = tk.Frame(card, bg=card_bg)
-            btn_row.pack(fill="x", padx=10, pady=(0, 8))
+            btn_row.pack(fill="x", padx=8, pady=(0, 8))
 
             tk.Button(
                 btn_row,
@@ -633,7 +674,7 @@ class LifeApp:
                 padx=8,
                 pady=8,
             )
-            note_box.pack(fill="both", expand=True, padx=10, pady=(0, 8))
+            note_box.pack(fill="both", expand=True, padx=8, pady=(0, 8))
             note_box.insert("1.0", d_info.get("note", ""))
 
             def make_saver(offset_key=d_key, v=done_var, c_bg=card_bg, nb=note_box):
@@ -653,7 +694,7 @@ class LifeApp:
                 relief="flat",
                 cursor="hand2",
                 command=make_saver(),
-            ).pack(fill="x", padx=10, pady=(0, 12), ipady=4)
+            ).pack(fill="x", padx=8, pady=(0, 12), ipady=4)
 
     def _save_day_state(self, week_idx: int, day_key: str, done: bool, color: str, note: str):
         idx_str = str(week_idx)
