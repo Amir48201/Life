@@ -2,6 +2,7 @@ import os
 import sys
 import json
 import calendar
+import traceback
 import tkinter as tk
 from tkinter import ttk, messagebox, colorchooser
 from datetime import date, timedelta
@@ -20,13 +21,18 @@ FUTURE_BOX = "#252834"
 
 
 def resource_path(relative_path: str) -> str:
-    """پیدا کردن مسیر فایل‌های داخلی (مثل آیکون) هم در حالت کد و هم داخل فایل EXE"""
-    base_path = getattr(sys, "_MEIPASS", os.path.abspath("."))
-    return os.path.join(base_path, relative_path)
+    """پیدا کردن مسیر فایل‌های داخلی برنامه (مثل آیکون)"""
+    if hasattr(sys, "_MEIPASS"):
+        return os.path.join(sys._MEIPASS, relative_path)
+    base_dir = os.path.dirname(os.path.abspath(sys.argv[0]))
+    candidate = os.path.join(base_dir, relative_path)
+    if os.path.exists(candidate):
+        return candidate
+    return os.path.join(os.path.abspath("."), relative_path)
 
 
 def get_anniversary(birth_date: date, years_to_add: int) -> date:
-    """محاسبه دقیق تاریخ سالگرد تولد با پشتیبانی از ۲۹ فوریه در سال‌های کبیسه"""
+    """محاسبه دقیق تاریخ سالگرد تولد با پشتیبانی از سال‌های کبیسه"""
     target_year = birth_date.year + years_to_add
     max_day = calendar.monthrange(target_year, birth_date.month)[1]
     return date(target_year, birth_date.month, min(birth_date.day, max_day))
@@ -40,7 +46,6 @@ class LifeApp:
         self.root.minsize(1050, 700)
         self.root.configure(bg=BG_MAIN)
 
-        # تنظیم آیکون یین و یانگ برای پنجره برنامه و نوار وظیفه
         try:
             ico_path = resource_path("yin_yang.ico")
             if os.path.exists(ico_path):
@@ -194,4 +199,153 @@ class LifeApp:
                 return
 
             self.data["birth_date"] = b_dt.isoformat()
-            self.data["target_age"] = age
+            self.data["target_age"] = age_val
+            self.save_data()
+            dialog.destroy()
+
+            self.initial_scroll_done = False
+            for widget in self.root.winfo_children():
+                widget.destroy()
+            self.init_main_ui()
+
+        tk.Button(
+            form,
+            text="Generate My Life Grid",
+            font=("Segoe UI", 10, "bold"),
+            bg=ACCENT_GOLD,
+            fg="#121318",
+            activebackground="#FFD54F",
+            relief="flat",
+            cursor="hand2",
+            command=on_save,
+        ).pack(fill="x", ipady=7)
+
+    def init_main_ui(self):
+        self.selected_week_idx = self.get_current_week_index()
+
+        header = tk.Frame(self.root, bg=BG_PANEL, height=54)
+        header.pack(fill="x", side="top")
+        header.pack_propagate(False)
+
+        tk.Label(
+            header, text="LIFE", font=("Segoe UI", 15, "bold"), bg=BG_PANEL, fg=ACCENT_GOLD
+        ).pack(side="left", padx=(20, 12))
+
+        self.stats_label = tk.Label(
+            header, text="", font=("Segoe UI", 10), bg=BG_PANEL, fg=TEXT_PRIMARY
+        )
+        self.stats_label.pack(side="left", padx=10)
+
+        tk.Button(
+            header,
+            text="⚙ Settings",
+            font=("Segoe UI", 9),
+            bg=BG_CARD,
+            fg=TEXT_PRIMARY,
+            relief="flat",
+            cursor="hand2",
+            command=lambda: self.show_setup_dialog(first_time=False),
+        ).pack(side="right", padx=16, pady=12)
+
+        tk.Button(
+            header,
+            text="+ Category",
+            font=("Segoe UI", 9),
+            bg=BG_CARD,
+            fg=ACCENT_GOLD,
+            relief="flat",
+            cursor="hand2",
+            command=self.add_category_dialog,
+        ).pack(side="right", padx=4, pady=12)
+
+        self.notebook = ttk.Notebook(self.root)
+        self.notebook.pack(fill="both", expand=True, padx=12, pady=(8, 12))
+
+        self.tab_overview = tk.Frame(self.notebook, bg=BG_MAIN)
+        self.tab_week = tk.Frame(self.notebook, bg=BG_MAIN)
+
+        self.notebook.add(self.tab_overview, text="  Life Overview (All Years)  ")
+        self.notebook.add(self.tab_week, text="  Week & Daily Tracker  ")
+
+        self.build_overview_tab()
+        self.build_week_tab()
+        self.update_header_stats()
+        self.load_week_into_panels(self.selected_week_idx)
+
+    def update_header_stats(self):
+        curr = self.get_current_week_index()
+        total = self.data["target_age"] * 52
+        rem = max(0, total - curr)
+        pct = min(100.0, (curr / total) * 100) if total > 0 else 0
+        age_yr = curr // 52
+        wk_yr = (curr % 52) + 1
+        self.stats_label.config(
+            text=f"Age {age_yr}, Week {wk_yr}/52   •   {pct:.1f}% Lived   •   {rem:,} Weeks Remaining"
+        )
+
+    def build_overview_tab(self):
+        left_frame = tk.Frame(self.tab_overview, bg=BG_PANEL)
+        left_frame.pack(side="left", fill="both", expand=True, padx=(0, 10))
+
+        zoom_bar = tk.Frame(left_frame, bg=BG_CARD, height=38)
+        zoom_bar.pack(fill="x", side="top")
+        zoom_bar.pack_propagate(False)
+
+        tk.Label(
+            zoom_bar,
+            text="  Scroll: Mouse Wheel  |  Zoom: Ctrl + Wheel",
+            font=("Segoe UI", 8),
+            bg=BG_CARD,
+            fg=TEXT_MUTED,
+        ).pack(side="left", padx=8)
+
+        tk.Button(
+            zoom_bar,
+            text=" + ",
+            font=("Segoe UI", 10, "bold"),
+            bg=BG_PANEL,
+            fg=TEXT_PRIMARY,
+            relief="flat",
+            cursor="hand2",
+            command=lambda: self.change_zoom(0.2),
+        ).pack(side="right", padx=(2, 10), pady=5)
+
+        self.zoom_label = tk.Label(
+            zoom_bar, text="100%", font=("Segoe UI", 9, "bold"), bg=BG_CARD, fg=ACCENT_GOLD, width=6
+        )
+        self.zoom_label.pack(side="right", padx=2)
+
+        tk.Button(
+            zoom_bar,
+            text=" - ",
+            font=("Segoe UI", 10, "bold"),
+            bg=BG_PANEL,
+            fg=TEXT_PRIMARY,
+            relief="flat",
+            cursor="hand2",
+            command=lambda: self.change_zoom(-0.2),
+        ).pack(side="right", padx=2, pady=5)
+
+        tk.Button(
+            zoom_bar,
+            text="Fit Width",
+            font=("Segoe UI", 8, "bold"),
+            bg=BG_PANEL,
+            fg=TEXT_PRIMARY,
+            relief="flat",
+            cursor="hand2",
+            command=self.reset_zoom,
+        ).pack(side="right", padx=6, pady=5)
+
+        tk.Button(
+            zoom_bar,
+            text="Jump to Now",
+            font=("Segoe UI", 8, "bold"),
+            bg=BG_PANEL,
+            fg=ACCENT_GOLD,
+            relief="flat",
+            cursor="hand2",
+            command=self.scroll_to_current_week,
+        ).pack(side="right", padx=4, pady=5)
+
+        canvas_holder = tk.Frame(left_frame, bg=BG_
