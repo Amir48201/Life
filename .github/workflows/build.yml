@@ -1,0 +1,30 @@
+name: Build Life EXE
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main, master ]
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install PyInstaller
+        run: pip install pyinstaller
+
+      - name: Build Life.exe
+        run: pyinstaller --noconsole --onefile --name "Life" life_app.py
+
+      - name: Upload Life.exe artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Life-Windows-App
+          path: dist/Life.exe
